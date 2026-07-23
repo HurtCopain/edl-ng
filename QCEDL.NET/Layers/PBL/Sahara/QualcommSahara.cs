@@ -28,13 +28,14 @@ internal delegate void ReadyHandler();
 
 public class QualcommSahara(IQualcommTransport transport)
 {
-    private sealed class UnexpectedSaharaPacketException(string message) : BadMessageException(message);
-
     private const uint FirehoseProgrammerImageId = 13;
     private const int SaharaPacketHeaderLength = 0x08;
     private const int EndImageTxPacketLength = 0x10;
     private const int DoneResponsePacketLength = 0x0C;
     public uint DetectedDeviceSaharaVersion { get; private set; } = 2;
+    public bool HasDetectedDeviceSaharaVersion { get; private set; }
+    public bool IsDeviceSaharaVersionInferred { get; private set; }
+    public uint? DetectedDeviceChipId { get; private set; }
     public bool IsCommandModeReady { get; private set; }
     private Dictionary<uint, string> _imageMappings = [];
 
@@ -112,7 +113,15 @@ public class QualcommSahara(IQualcommTransport transport)
         var message = DescribeUnexpectedHandshakePacket(packet, command, expectedCommand);
         if (IsCompleteSaharaPacket(packet, command))
         {
-            throw new UnexpectedSaharaPacketException(message);
+            var isEndImageTx =
+                command == QualcommSaharaCommand.EndImageTx &&
+                packet.Length == EndImageTxPacketLength;
+            throw new QualcommSaharaUnexpectedPacketException(
+                message,
+                command,
+                [.. packet],
+                isEndImageTx ? ByteOperations.ReadUInt32(packet, 0x08) : null,
+                isEndImageTx ? ByteOperations.ReadUInt32(packet, 0x0C) : null);
         }
 
         throw new BadMessageException(message);
@@ -175,6 +184,13 @@ public class QualcommSahara(IQualcommTransport transport)
             $"Initial Sahara read timed out on Windows QUD; sending a speculative HELLO response for {mode} mode.");
         transport.SendData(BuildHelloResponsePacket(mode));
         return (transport.GetResponse(null), true);
+    }
+
+    private void RecordAdvertisedSaharaVersion(byte[] helloPacket)
+    {
+        DetectedDeviceSaharaVersion = ByteOperations.ReadUInt32(helloPacket, 0x08);
+        HasDetectedDeviceSaharaVersion = true;
+        IsDeviceSaharaVersionInferred = false;
     }
 
     #endregion
@@ -294,7 +310,7 @@ public class QualcommSahara(IQualcommTransport transport)
                 throw new BadMessageException("Sahara HELLO packet is too short.");
             }
 
-            DetectedDeviceSaharaVersion = ByteOperations.ReadUInt32(packet, 0x08);
+            RecordAdvertisedSaharaVersion(packet);
             var helloResponse = BuildHelloResponsePacket(
                 QualcommSaharaMode.Command,
                 DetectedDeviceSaharaVersion);
@@ -319,7 +335,7 @@ public class QualcommSahara(IQualcommTransport transport)
             IsCommandModeReady = true;
             return QualcommSaharaHandshakeResult.Sahara;
         }
-        catch (UnexpectedSaharaPacketException ex)
+        catch (QualcommSaharaUnexpectedPacketException ex)
         {
             LibraryLogger.Error($"Handshake failed: {ex.Message}");
             return QualcommSaharaHandshakeResult.UnexpectedSaharaPacket;
@@ -340,6 +356,15 @@ public class QualcommSahara(IQualcommTransport transport)
     {
         IsCommandModeReady = false;
         _ = transport.SendCommand(BuildCommandPacket(QualcommSaharaCommand.Reset), [0x08, 0x00, 0x00, 0x00]);
+    }
+
+    public void ResetStateMachine()
+    {
+        IsCommandModeReady = false;
+        var packet = BuildCommandPacket(QualcommSaharaCommand.ResetStateMachine);
+        LibraryLogger.Debug(
+            $"Sending Sahara RESET_STATE_MACHINE ({packet.Length} bytes): {Convert.ToHexString(packet)}");
+        transport.SendData(packet);
     }
 
     public void SwitchMode(QualcommSaharaMode mode)
@@ -403,7 +428,7 @@ public class QualcommSahara(IQualcommTransport transport)
                     throw new BadMessageException("Sahara HELLO packet is too short.");
                 }
 
-                DetectedDeviceSaharaVersion = ByteOperations.ReadUInt32(initialPacket, 0x08);
+                RecordAdvertisedSaharaVersion(initialPacket);
                 transport.SendData(BuildHelloResponsePacket(QualcommSaharaMode.ImageTxPending));
                 pendingRequest = null;
             }
@@ -591,7 +616,23 @@ public class QualcommSahara(IQualcommTransport transport)
 
     public byte[] GetSerialNumber()
     {
-        return Execute.GetSerialNumber(transport);
+        var serialNumber = Execute.GetSerialNumber(transport, out var chipId);
+        DetectedDeviceChipId = chipId;
+        if (chipId.HasValue && !HasDetectedDeviceSaharaVersion)
+        {
+            DetectedDeviceSaharaVersion = 3;
+            HasDetectedDeviceSaharaVersion = true;
+            IsDeviceSaharaVersionInferred = true;
+            LibraryLogger.Debug(
+                $"Sahara HELLO version was unavailable; inferred protocol version 3 from the 8-byte SERIAL_NUM_READ response (Chip ID 0x{chipId.Value:X8}).");
+        }
+        else if (chipId.HasValue && DetectedDeviceSaharaVersion < 3)
+        {
+            LibraryLogger.Warning(
+                $"Sahara protocol version {DetectedDeviceSaharaVersion} was advertised, but SERIAL_NUM_READ returned the 8-byte v3 layout (Chip ID 0x{chipId.Value:X8}). Keeping the advertised protocol version.");
+        }
+
+        return serialNumber;
     }
 
     #endregion

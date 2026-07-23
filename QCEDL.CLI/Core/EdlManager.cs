@@ -46,6 +46,24 @@ internal sealed class EdlManager(GlobalOptionsBinder globalOptions) : IDisposabl
     public bool IsRadxaWosMode => globalOptions.RadxaWosPlatform;
     public bool IsDirectMode => IsHostDeviceMode || IsRadxaWosMode;
 
+    private static void ResetSaharaStateMachineAfterUnexpectedPacket(
+        QualcommSahara saharaClient,
+        string context)
+    {
+        Logging.Log(
+            $"{context} received an unexpected Sahara packet. Sending RESET_STATE_MACHINE before aborting.",
+            LogLevel.Warning);
+        try
+        {
+            saharaClient.ResetStateMachine();
+            Logging.Log("Sahara RESET_STATE_MACHINE packet written to the transport.", LogLevel.Debug);
+        }
+        catch (Exception ex)
+        {
+            Logging.Log($"Failed to send Sahara RESET_STATE_MACHINE: {ex.Message}", LogLevel.Error);
+        }
+    }
+
     public string GetTargetDescription(uint lun)
     {
         return IsHostDeviceMode
@@ -346,9 +364,9 @@ internal sealed class EdlManager(GlobalOptionsBinder globalOptions) : IDisposabl
                 }
                 else if (handshakeResult == QualcommSaharaHandshakeResult.UnexpectedSaharaPacket)
                 {
-                    Logging.Log(
-                        "Discarded HELLO recovery received an unexpected Sahara packet. Aborting mode detection without sending other protocol probes.",
-                        LogLevel.Error);
+                    ResetSaharaStateMachineAfterUnexpectedPacket(
+                        saharaProbeClient,
+                        "Discarded HELLO recovery");
                     detectedMode = DeviceMode.Error;
                 }
                 else
@@ -451,9 +469,9 @@ internal sealed class EdlManager(GlobalOptionsBinder globalOptions) : IDisposabl
                         }
                         else if (handshakeResult == QualcommSaharaHandshakeResult.UnexpectedSaharaPacket)
                         {
-                            Logging.Log(
-                                "Full Sahara handshake received an unexpected Sahara packet. Aborting mode detection without sending other protocol probes.",
-                                LogLevel.Error);
+                            ResetSaharaStateMachineAfterUnexpectedPacket(
+                                saharaProbeClient,
+                                "Full Sahara handshake");
                             detectedMode = DeviceMode.Error;
                         }
                         else
@@ -851,12 +869,18 @@ internal sealed class EdlManager(GlobalOptionsBinder globalOptions) : IDisposabl
             }
             _initialSaharaHelloPacket = null;
 
-            var deviceVersion = _saharaClient.DetectedDeviceSaharaVersion;
-
             try
             {
                 var sn = _saharaClient.GetSerialNumber();
                 Logging.Log($"Serial Number: {Convert.ToHexString(sn)}");
+                var deviceVersion = _saharaClient.DetectedDeviceSaharaVersion;
+                if (_saharaClient.IsDeviceSaharaVersionInferred)
+                {
+                    Logging.Log(
+                        $"Sahara protocol version inferred as {deviceVersion} from the 8-byte SERIAL_NUM_READ response (Chip ID 0x{_saharaClient.DetectedDeviceChipId!.Value:X8}).",
+                        LogLevel.Debug);
+                }
+
                 if (deviceVersion < 3)
                 {
                     Logging.Log("Sahara version < 3, attempting to get HWID and RKH.", LogLevel.Debug);
@@ -878,6 +902,10 @@ internal sealed class EdlManager(GlobalOptionsBinder globalOptions) : IDisposabl
                         Logging.Log($"HWID: {Convert.ToHexString(hwid)}", LogLevel.Debug);
                         HardwareId.ParseHwid(hwid);
                     }
+                    catch (QualcommSaharaUnexpectedPacketException)
+                    {
+                        throw;
+                    }
                     catch (Exception ex)
                     {
                         Logging.Log($"Failed to retrieve Sahara v3 HWID via CMD10: {ex.Message}",
@@ -890,6 +918,16 @@ internal sealed class EdlManager(GlobalOptionsBinder globalOptions) : IDisposabl
                 {
                     Logging.Log($"RKH[{i}]: {Convert.ToHexString(rkhs[i])}", LogLevel.Debug);
                 }
+            }
+            catch (QualcommSaharaUnexpectedPacketException ex)
+            {
+                Logging.Log(
+                    $"Sahara command-mode query received a terminal protocol response: {ex.Message}",
+                    LogLevel.Error);
+                ResetSaharaStateMachineAfterUnexpectedPacket(
+                    _saharaClient,
+                    "Sahara command-mode query");
+                throw;
             }
             catch (Exception ex)
             {

@@ -6,6 +6,7 @@ namespace Qualcomm.EmergencyDownload.Layers.PBL.Sahara.Command;
 internal sealed class Execute
 {
     private const int ExecuteResponsePacketLength = 0x10;
+    private const int MaximumExecuteResponsePacketLength = 0x40;
     private const int MaximumCommandResponseLength = 0x10000;
 
     private static byte[] BuildExecutePacket(uint requestId)
@@ -26,17 +27,24 @@ internal sealed class Execute
     {
         transport.SendData(BuildExecutePacket((uint)command));
 
-        var executeResponse = transport.GetResponse(null, ExecuteResponsePacketLength);
+        var executeResponse = transport.GetResponse(null, MaximumExecuteResponsePacketLength);
         LibraryLogger.Trace(
             $"Sahara EXECUTE response for {command} ({executeResponse.Length} bytes): {Convert.ToHexString(executeResponse)}");
+        if (executeResponse.Length < 0x08)
+        {
+            throw new BadMessageException(
+                $"Sahara EXECUTE response for {command} is {executeResponse.Length} bytes; at least 8 bytes are required.");
+        }
+
+        var responseId = (QualcommSaharaCommand)ByteOperations.ReadUInt32(executeResponse, 0x00);
+        var declaredLength = ByteOperations.ReadUInt32(executeResponse, 0x04);
+        ThrowIfUnexpectedSaharaPacket(command, executeResponse, responseId, declaredLength);
         if (executeResponse.Length != ExecuteResponsePacketLength)
         {
             throw new BadMessageException(
                 $"Sahara EXECUTE response for {command} is {executeResponse.Length} bytes; expected {ExecuteResponsePacketLength} bytes.");
         }
 
-        var responseId = (QualcommSaharaCommand)ByteOperations.ReadUInt32(executeResponse, 0x00);
-        var declaredLength = ByteOperations.ReadUInt32(executeResponse, 0x04);
         var responseCommand = (QualcommSaharaExecuteCommand)ByteOperations.ReadUInt32(executeResponse, 0x08);
         var dataLength = ByteOperations.ReadUInt32(executeResponse, 0x0C);
         if (responseId != QualcommSaharaCommand.ExecuteResponse ||
@@ -58,6 +66,42 @@ internal sealed class Execute
         LibraryLogger.Trace(
             $"Sahara EXECUTE payload for {command} ({response.Length} bytes): {Convert.ToHexString(response)}");
         return response;
+    }
+
+    private static void ThrowIfUnexpectedSaharaPacket(
+        QualcommSaharaExecuteCommand clientCommand,
+        byte[] packet,
+        QualcommSaharaCommand responseCommand,
+        uint declaredLength)
+    {
+        if (responseCommand == QualcommSaharaCommand.ExecuteResponse ||
+            responseCommand == QualcommSaharaCommand.NoCommand ||
+            !Enum.IsDefined(responseCommand) ||
+            declaredLength != packet.Length)
+        {
+            return;
+        }
+
+        uint? imageId = null;
+        uint? status = null;
+        var details = string.Empty;
+        if (responseCommand == QualcommSaharaCommand.EndImageTx && packet.Length == 0x10)
+        {
+            imageId = ByteOperations.ReadUInt32(packet, 0x08);
+            status = ByteOperations.ReadUInt32(packet, 0x0C);
+            var statusCode = (QualcommSaharaStatusCode)status.Value;
+            var statusDescription = Enum.IsDefined(statusCode)
+                ? $"{statusCode} (0x{status.Value:X8})"
+                : $"Unknown (0x{status.Value:X8})";
+            details = $" (Image ID {imageId.Value}, Status {statusDescription})";
+        }
+
+        throw new QualcommSaharaUnexpectedPacketException(
+            $"Expected Sahara EXECUTE_RESP for {clientCommand}, received {responseCommand}{details}.",
+            responseCommand,
+            [.. packet],
+            imageId,
+            status);
     }
 
     private static byte[] ReadExactly(IQualcommTransport transport, int length)
@@ -127,7 +171,15 @@ internal sealed class Execute
 
     public static byte[] GetSerialNumber(IQualcommTransport transport)
     {
+        return GetSerialNumber(transport, out _);
+    }
+
+    public static byte[] GetSerialNumber(IQualcommTransport transport, out uint? chipId)
+    {
         var response = GetCommandVariable(transport, QualcommSaharaExecuteCommand.SerialNumRead);
+        chipId = response.Length >= 2 * sizeof(uint)
+            ? ByteOperations.ReadUInt32(response, sizeof(uint))
+            : null;
         return response.Length >= sizeof(uint)
             ? [response[3], response[2], response[1], response[0]]
             : throw new BadMessageException(

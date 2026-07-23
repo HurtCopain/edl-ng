@@ -145,6 +145,96 @@ public sealed class QualcommSaharaV3ChipInfoTests
         Assert.Empty(responses);
     }
 
+    [Fact]
+    public void DiscardedHelloInfersV3FromSerialResponseAndUsesCmd10()
+    {
+        var serialPayload = new byte[8];
+        ByteOperations.WriteUInt32(serialPayload, 0x00, 0x726DDCAB);
+        ByteOperations.WriteUInt32(serialPayload, 0x04, 0x00000437);
+        var chipInfoPayload = BuildPayload();
+        var responses = new Queue<byte[]>(
+        [
+            QualcommSahara.BuildCommandPacket(QualcommSaharaCommand.CommandReady),
+            BuildExecuteResponse(QualcommSaharaExecuteCommand.SerialNumRead, serialPayload.Length),
+            serialPayload,
+            BuildExecuteResponse(QualcommSaharaExecuteCommand.ReadChipIdV3, chipInfoPayload.Length),
+            chipInfoPayload
+        ]);
+        using var transport = new SaharaRecordingTransport(responses, initialReadTimeouts: 1);
+        var sahara = new QualcommSahara(transport);
+
+        Assert.Equal(QualcommSaharaHandshakeResult.Sahara, sahara.ProbeCommandMode());
+        Assert.False(sahara.HasDetectedDeviceSaharaVersion);
+
+        Assert.Equal("726DDCAB", Convert.ToHexString(sahara.GetSerialNumber()));
+        Assert.Equal(3u, sahara.DetectedDeviceSaharaVersion);
+        Assert.True(sahara.HasDetectedDeviceSaharaVersion);
+        Assert.True(sahara.IsDeviceSaharaVersionInferred);
+        Assert.Equal(0x00000437u, sahara.DetectedDeviceChipId);
+        Assert.Equal("001B30E10051A012", Convert.ToHexString(sahara.GetHwid()));
+
+        Assert.Equal(
+            [
+                QualcommSaharaExecuteCommand.SerialNumRead,
+                QualcommSaharaExecuteCommand.SerialNumRead,
+                QualcommSaharaExecuteCommand.ReadChipIdV3,
+                QualcommSaharaExecuteCommand.ReadChipIdV3
+            ],
+            transport.SentPackets
+                .Where(static packet =>
+                    BitConverter.ToUInt32(packet, 0) is
+                        (uint)QualcommSaharaCommand.Execute or
+                        (uint)QualcommSaharaCommand.ExecuteData)
+                .Select(static packet =>
+                    (QualcommSaharaExecuteCommand)BitConverter.ToUInt32(packet, 0x08)));
+        Assert.Empty(responses);
+    }
+
+    [Fact]
+    public void DiscardedHelloKeepsBaselineVersionForFourByteSerialResponse()
+    {
+        var serialPayload = new byte[4];
+        ByteOperations.WriteUInt32(serialPayload, 0x00, 0x726DDCAB);
+        var responses = new Queue<byte[]>(
+        [
+            QualcommSahara.BuildCommandPacket(QualcommSaharaCommand.CommandReady),
+            BuildExecuteResponse(QualcommSaharaExecuteCommand.SerialNumRead, serialPayload.Length),
+            serialPayload
+        ]);
+        using var transport = new SaharaRecordingTransport(responses, initialReadTimeouts: 1);
+        var sahara = new QualcommSahara(transport);
+
+        Assert.Equal(QualcommSaharaHandshakeResult.Sahara, sahara.ProbeCommandMode());
+        Assert.Equal("726DDCAB", Convert.ToHexString(sahara.GetSerialNumber()));
+
+        Assert.Equal(2u, sahara.DetectedDeviceSaharaVersion);
+        Assert.False(sahara.HasDetectedDeviceSaharaVersion);
+        Assert.False(sahara.IsDeviceSaharaVersionInferred);
+        Assert.Null(sahara.DetectedDeviceChipId);
+        Assert.Empty(responses);
+    }
+
+    [Fact]
+    public void ExecuteReportsEndImageTxStatusInsteadOfMisparsingExecuteFields()
+    {
+        var responses = new Queue<byte[]>(
+        [
+            BuildEndImageTxPacket(13, 0x1F)
+        ]);
+        using var transport = new SaharaRecordingTransport(responses);
+
+        var ex = Assert.Throws<QualcommSaharaUnexpectedPacketException>(() =>
+            Execute.GetHwid(transport));
+
+        Assert.Equal(QualcommSaharaCommand.EndImageTx, ex.ReceivedCommand);
+        Assert.Equal(13u, ex.ImageId);
+        Assert.Equal(0x1Fu, ex.Status);
+        Assert.Contains("ErrorExecCmdUnsupported", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("client command 13", ex.Message, StringComparison.Ordinal);
+        Assert.Equal([QualcommSaharaCommand.Execute], transport.SentCommands);
+        Assert.Empty(responses);
+    }
+
     private static byte[] BuildPayload()
     {
         var payload = new byte[0x50];
@@ -177,5 +267,13 @@ public sealed class QualcommSaharaV3ChipInfoTests
         ByteOperations.WriteUInt32(payload, 0x00, (uint)command);
         ByteOperations.WriteUInt32(payload, 0x04, checked((uint)payloadLength));
         return QualcommSahara.BuildCommandPacket(QualcommSaharaCommand.ExecuteResponse, payload);
+    }
+
+    private static byte[] BuildEndImageTxPacket(uint imageId, uint status)
+    {
+        var payload = new byte[8];
+        ByteOperations.WriteUInt32(payload, 0x00, imageId);
+        ByteOperations.WriteUInt32(payload, 0x04, status);
+        return QualcommSahara.BuildCommandPacket(QualcommSaharaCommand.EndImageTx, payload);
     }
 }

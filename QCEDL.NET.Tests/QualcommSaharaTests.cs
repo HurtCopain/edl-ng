@@ -21,6 +21,8 @@ public sealed class QualcommSaharaTests
 
         Assert.Equal(QualcommSaharaHandshakeResult.Sahara, result);
         Assert.Equal(3u, sahara.DetectedDeviceSaharaVersion);
+        Assert.True(sahara.HasDetectedDeviceSaharaVersion);
+        Assert.False(sahara.IsDeviceSaharaVersionInferred);
         Assert.Equal([QualcommSaharaCommand.HelloResponse], transport.SentCommands);
         Assert.Equal(3u, BitConverter.ToUInt32(transport.SentPackets[0], 0x08));
     }
@@ -39,6 +41,7 @@ public sealed class QualcommSaharaTests
 
         Assert.Equal(QualcommSaharaHandshakeResult.Sahara, result);
         Assert.True(sahara.IsCommandModeReady);
+        Assert.False(sahara.HasDetectedDeviceSaharaVersion);
         var helloResponse = Assert.Single(transport.SentPackets);
         Assert.Equal(QualcommSaharaCommand.HelloResponse, ReadCommand(helloResponse));
         Assert.Equal(QualcommSaharaMode.Command, (QualcommSaharaMode)BitConverter.ToUInt32(helloResponse, 0x14));
@@ -79,6 +82,22 @@ public sealed class QualcommSaharaTests
         Assert.Equal(
             [QualcommSaharaCommand.HelloResponse, QualcommSaharaCommand.SwitchMode],
             transport.SentCommands);
+    }
+
+    [Fact]
+    public void ResetStateMachineSendsHeaderOnlyPacket()
+    {
+        var responses = new Queue<byte[]>();
+        using var transport = new SaharaRecordingTransport(responses);
+        var sahara = new QualcommSahara(transport);
+
+        sahara.ResetStateMachine();
+
+        var packet = Assert.Single(transport.SentPackets);
+        Assert.Equal(QualcommSaharaCommand.ResetStateMachine, ReadCommand(packet));
+        Assert.Equal(8, packet.Length);
+        Assert.Equal(8u, BitConverter.ToUInt32(packet, 0x04));
+        Assert.Empty(responses);
     }
 
     [Fact]
