@@ -99,31 +99,12 @@ public sealed class LibUsbTransport : IQualcommTransport
         }
     }
 
-    // --- overflow fix: leftover bytes from an oversized bulk read ---
-    private byte[] _pendingRead = [];
-
-    // Bulk IN transfers must supply at least wMaxPacketSize (512 HS / 1024 SS).
-    // 16 KiB is a safe multiple of both and comfortably holds a Firehose XML ACK.
-    private const int MinBulkRead = 16384;
-
     public int Read(byte[] buffer, int offset, int count)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ValidateBuffer(buffer, offset, count);
 
-        // Serve from previously buffered overflow first.
-        if (_pendingRead.Length > 0)
-        {
-            var fromPending = Math.Min(count, _pendingRead.Length);
-            Buffer.BlockCopy(_pendingRead, 0, buffer, offset, fromPending);
-            _pendingRead = _pendingRead[fromPending..];
-            return fromPending;
-        }
-
-        // Never hand libusb a buffer smaller than a full packet.
-        var readSize = Math.Max(count, MinBulkRead);
-        var target = new byte[readSize];
-
+        var target = offset == 0 && count == buffer.Length ? buffer : new byte[count];
         var error = _reader!.Read(target, EffectiveTimeout, out var bytesRead);
         if (error == Error.Success && bytesRead == 0)
         {
@@ -131,22 +112,12 @@ public sealed class LibUsbTransport : IQualcommTransport
         }
 
         ThrowForError(error, "read");
-
-        if (bytesRead <= 0)
+        if (!ReferenceEquals(target, buffer) && bytesRead > 0)
         {
-            return 0;
+            Buffer.BlockCopy(target, 0, buffer, offset, bytesRead);
         }
 
-        var copied = Math.Min(bytesRead, count);
-        Buffer.BlockCopy(target, 0, buffer, offset, copied);
-
-        // Stash anything the caller could not accept so it is not lost.
-        if (bytesRead > copied)
-        {
-            _pendingRead = target[copied..bytesRead];
-        }
-
-        return copied;
+        return bytesRead;
     }
 
     public int Write(byte[] buffer, int offset, int count)
@@ -157,9 +128,7 @@ public sealed class LibUsbTransport : IQualcommTransport
         var source = offset == 0 && count == buffer.Length
             ? buffer
             : buffer.AsSpan(offset, count).ToArray();
-        // Firehose's first OUT transfer needs far more than the 1 s read timeout.
-        var writeTimeout = Math.Max(EffectiveTimeout, 15000);
-        var error = _writer!.Write(source, writeTimeout, out var bytesWritten);
+        var error = _writer!.Write(source, EffectiveTimeout, out var bytesWritten);
         ThrowForError(error, "write");
         return bytesWritten;
     }

@@ -157,9 +157,7 @@ public sealed class LibUsbTransport : IQualcommTransport
         var source = offset == 0 && count == buffer.Length
             ? buffer
             : buffer.AsSpan(offset, count).ToArray();
-        // Firehose's first OUT transfer needs far more than the 1 s read timeout.
-        var writeTimeout = Math.Max(EffectiveTimeout, 15000);
-        var error = _writer!.Write(source, writeTimeout, out var bytesWritten);
+        var error = _writer!.Write(source, EffectiveTimeout, out var bytesWritten);
         ThrowForError(error, "write");
         return bytesWritten;
     }

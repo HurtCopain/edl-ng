@@ -60,9 +60,6 @@ public static class QualcommFirehoseXml
                 if (cfg.ShouldSerializeSkipStorageInit())
                 {
                     configureElement.Add(new XAttribute("SkipStorageInit", cfg.SkipStorageInit));
-                    LibraryLogger.Debug("OPPO_VIP_FLAGS: sending EnableVip=0 EnableFlash=1");
-                    configureElement.Add(new XAttribute("EnableVip", "0"));
-                    configureElement.Add(new XAttribute("EnableFlash", "1"));
                 }
 
                 dataElement.Add(configureElement);
