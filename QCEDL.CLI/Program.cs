@@ -161,6 +161,7 @@ rootCommand.AddCommand(EraseSectorCommand.Create(globalOptionsBinder));
 rootCommand.AddCommand(EraseAllCommand.Create(globalOptionsBinder));
 rootCommand.AddCommand(ProvisionCommand.Create(globalOptionsBinder));
 rootCommand.AddCommand(RawProgramCommand.Create(globalOptionsBinder));
+rootCommand.AddCommand(SendXmlCommand.Create(globalOptionsBinder));
 // ... etc ...
 
 // --- Default Handler (Show Help if no command given) ---
