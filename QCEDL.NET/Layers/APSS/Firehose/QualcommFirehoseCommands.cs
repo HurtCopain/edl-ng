@@ -23,7 +23,22 @@ public static class QualcommFirehoseCommands
                 skipStorageInit)
         ]);
 
-        firehose.Transport.SendData(Encoding.UTF8.GetBytes(command03));
+        // Read out the loader's power-on hello/<log> burst first. On OPPO/kaanapali loaders the
+        // target will not service bulk-OUT until its pending IN is drained, so writing <configure>
+        // immediately after Sahara can hang until the LibUsb write timeout fires.
+        firehose.DrainPendingData();
+
+        var configureBytes = Encoding.UTF8.GetBytes(command03);
+        try
+        {
+            firehose.Transport.SendData(configureBytes);
+        }
+        catch (TimeoutException)
+        {
+            LibraryLogger.Warning("Configure write timed out; draining pending log data and retrying once.");
+            firehose.DrainPendingData();
+            firehose.Transport.SendData(configureBytes);
+        }
 
         var gotResponse = false;
 

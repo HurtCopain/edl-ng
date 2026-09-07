@@ -60,9 +60,11 @@ public static class QualcommFirehoseXml
                 if (cfg.ShouldSerializeSkipStorageInit())
                 {
                     configureElement.Add(new XAttribute("SkipStorageInit", cfg.SkipStorageInit));
-                    LibraryLogger.Debug("OPPO_VIP_FLAGS: sending EnableVip=0 EnableFlash=1");
-                    configureElement.Add(new XAttribute("EnableVip", "0"));
-                    configureElement.Add(new XAttribute("EnableFlash", "1"));
+                    // NOTE: EnableVip/EnableFlash were previously attached to <configure> here.
+                    // That is the wrong command and the wrong value: the OPPO/OPlus VIP unlock is a
+                    // standalone <verify value="ping" EnableVip="1"/> packet that must be sent (and
+                    // re-sent, because VIP re-locks per command) before each privileged operation.
+                    // See QualcommFirehose.SendOppoVipPing().
                 }
 
                 dataElement.Add(configureElement);

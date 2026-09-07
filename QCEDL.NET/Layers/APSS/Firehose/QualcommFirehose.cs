@@ -30,6 +30,81 @@ public class QualcommFirehose(IQualcommTransport transport)
 {
     public IQualcommTransport Transport { get; } = transport;
 
+    /// <summary>
+    /// Reads and discards any data the loader still has queued on the IN endpoint
+    /// (its power-on XML hello / &lt;log&gt; burst). Some OPPO/kaanapali loaders will not
+    /// service bulk-OUT until their pending IN is drained, which otherwise shows up as a
+    /// LibUsb write timeout on the very first command. Uses a short read timeout and stops
+    /// as soon as the endpoint goes idle.
+    /// </summary>
+    public void DrainPendingData(int idleTimeoutMs = 300, int maxDurationMs = 5000)
+    {
+        var previousTimeout = Transport.TimeoutMilliseconds;
+        Transport.TimeoutMilliseconds = idleTimeoutMs;
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            while (stopwatch.ElapsedMilliseconds < maxDurationMs)
+            {
+                byte[] chunk;
+                try
+                {
+                    chunk = Transport.GetResponse(null, length: 0x4000);
+                }
+                catch (TimeoutException)
+                {
+                    break; // endpoint idle
+                }
+                catch (BadMessageException)
+                {
+                    break; // empty read -> nothing left to drain
+                }
+
+                if (chunk is null || chunk.Length == 0)
+                {
+                    break;
+                }
+
+                LibraryLogger.Debug("DRAIN: " + Encoding.UTF8.GetString(chunk));
+            }
+        }
+        finally
+        {
+            Transport.TimeoutMilliseconds = previousTimeout;
+        }
+    }
+
+    /// <summary>
+    /// Sends the OPPO/OPlus VIP unlock ping (<c>&lt;verify value="ping" EnableVip="1"/&gt;</c>)
+    /// and drains the response. On these devices VIP re-locks after every command, so this must
+    /// be sent before each privileged operation (configure/erase/program), not just once.
+    /// Returns true if the loader ACKed the unlock.
+    /// </summary>
+    public bool SendOppoVipPing()
+    {
+        const string pingPacket =
+            "<?xml version=\"1.0\" ?><data><verify value=\"ping\" EnableVip=\"1\" /></data>";
+        DrainPendingData();
+        Transport.SendData(Encoding.UTF8.GetBytes(pingPacket));
+
+        var datas = GetFirehoseResponseDataPayloads();
+        foreach (var data in datas)
+        {
+            if (data.Log != null)
+            {
+                LibraryLogger.Debug("VIP PING LOG: " + data.Log.Value);
+            }
+            else if (data.Response != null)
+            {
+                var acked = data.Response.Value == "ACK";
+                LibraryLogger.Debug($"OPPO VIP ping {(acked ? "ACKed" : "response: " + data.Response.Value)}.");
+                return acked;
+            }
+        }
+
+        return false;
+    }
+
     public byte[] GetFirehoseXmlResponseBuffer(bool waitTilFooter = false)
     {
         if (!waitTilFooter)
