@@ -989,14 +989,31 @@ internal sealed class EdlManager(GlobalOptionsBinder globalOptions) : IDisposabl
 
             var success = await Task.Run(() => _firehoseClient.Configure(storage));
 
+            // Configure() does return false on a genuine NAK (see QualcommFirehoseCommands.Configure,
+            // "Configure command NAKed." -> return false). Trust that instead of forcing
+            // _firehoseConfigured = true unconditionally: on hardware that NAKs Configure (e.g. a
+            // connect-time secure-world/VIP signature check failing), the storage bus is very likely
+            // left unresponsive, and every subsequent call (GetStorageInfo, Read, ...) would otherwise
+            // hang for the full LibUsb write-timeout floor (15s+) each before failing anyway. Fail fast
+            // here instead - on hardware with limited/no battery, those wasted seconds can matter more
+            // than the diagnostic value of still attempting them.
+            _firehoseConfigured = success;
+
             if (!success)
             {
-                // The Configure method in the provided QCEDL.NET doesn't seem to return false,
-                // it relies on exceptions or log parsing. We might need to adjust it or add checks here.
-                Logging.Log("Firehose configuration might have failed (check logs).", LogLevel.Warning);
+                Logging.Log(
+                    "Firehose Configure was NAKed by the device. See the DEVPRG LOG lines above for the reported reason.",
+                    LogLevel.Error);
+                throw new InvalidOperationException(
+                    "Firehose Configure was NAKed by the device. Aborting immediately rather than proceeding " +
+                    "to storage calls that would very likely time out as well.");
             }
+
             Logging.Log($"Firehose configured for Memory: {storage}, MaxPayload: {maxPayload}\n");
-            _firehoseConfigured = true;
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
