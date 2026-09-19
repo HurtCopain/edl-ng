@@ -117,6 +117,12 @@ var radxaWosOption = new Option<bool>(
     name: "--radxa-wos-platform",
     description: "Access the Radxa Windows on Snapdragon SPI NOR backend via the local driver (Windows only).");
 
+var skipConfigureOption = new Option<bool>(
+    name: "--skip-configure",
+    description: "Do not send the Firehose <configure> packet. Required on OPPO/OPlus kaanapali (SM8850) " +
+                 "loaders, which self-configure during Sahara startup and reject a host <configure> with " +
+                 "'Mode= Invalid value' / 'DebugValue= Invalid value'. Equivalent to fh_loader --skip_configure.");
+
 // --- Create Global Options Binder ---
 var globalOptionsBinder = new GlobalOptionsBinder(
     loaderOption,
@@ -128,7 +134,8 @@ var globalOptionsBinder = new GlobalOptionsBinder(
     slotOption,
     hostDevAsTargetOption,
     imgSizeOption,
-    radxaWosOption
+    radxaWosOption,
+    skipConfigureOption
 );
 
 // --- Define Root Command ---
@@ -144,9 +151,11 @@ rootCommand.AddGlobalOption(slotOption);
 rootCommand.AddGlobalOption(hostDevAsTargetOption);
 rootCommand.AddGlobalOption(imgSizeOption);
 rootCommand.AddGlobalOption(radxaWosOption);
+rootCommand.AddGlobalOption(skipConfigureOption);
 
 // --- Define Commands (Add more commands here later) ---
 rootCommand.AddCommand(UploadLoaderCommand.Create(globalOptionsBinder));
+rootCommand.AddCommand(SetActiveSlotCommand.Create(globalOptionsBinder));
 rootCommand.AddCommand(RamDumpCommand.Create(globalOptionsBinder));
 rootCommand.AddCommand(ResetCommand.Create(globalOptionsBinder));
 rootCommand.AddCommand(PrintGptCommand.Create(globalOptionsBinder));

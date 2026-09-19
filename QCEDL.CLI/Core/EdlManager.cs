@@ -980,6 +980,22 @@ internal sealed class EdlManager(GlobalOptionsBinder globalOptions) : IDisposabl
             throw new InvalidOperationException("Not in Firehose mode.");
         }
 
+        if (globalOptions.SkipConfigure)
+        {
+            // OPPO/OPlus kaanapali (SM8850): the device programmer self-configures during Sahara
+            // startup - its own DEVPRG log reports "VIP is enabled, receiving the partition info of
+            // size 36864" before the host has sent anything. A host <configure> afterwards reaches an
+            // oplus handler that additionally requires Mode= and DebugValue=, which no stock tooling
+            // emits, and the command is refused ("Failed to run the last command 2"). On a
+            // VIP-enforcing loader that refusal takes the storage bus down with it.
+            //
+            // OPPO's own tool avoids this entirely by passing fh_loader --skip_configure and opening
+            // with <sha256init Verbose="1"/> instead. Mirror that here.
+            Logging.Log("Skipping Firehose configure (--skip-configure); loader self-configures on this platform.");
+            _firehoseConfigured = true;
+            return;
+        }
+
         try
         {
             Logging.Log("Sending Firehose configure command...");

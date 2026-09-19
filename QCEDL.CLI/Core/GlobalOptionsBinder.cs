@@ -20,7 +20,8 @@ internal sealed class GlobalOptionsBinder(
     Option<uint> slotOption,
     Option<string?> hostDevAsTargetOption,
     Option<string?> imgSizeOption,
-    Option<bool> radxaWosOption)
+    Option<bool> radxaWosOption,
+    Option<bool> skipConfigureOption)
     : BinderBase<GlobalOptionsBinder>
 {
     public string? LoaderPath { get; set; }
@@ -33,6 +34,7 @@ internal sealed class GlobalOptionsBinder(
     public string? HostDevAsTarget { get; set; }
     public string? ImgSize { get; set; }
     public bool RadxaWosPlatform { get; set; }
+    public bool SkipConfigure { get; set; }
 
     protected override GlobalOptionsBinder GetBoundValue(BindingContext bindingContext)
     {
@@ -45,7 +47,7 @@ internal sealed class GlobalOptionsBinder(
             Logging.Log(message, mappedCliLevel);
         };
 
-        return new(loaderOption, vidOption, pidOption, memoryOption, logLevelOption, maxPayloadOption, slotOption, hostDevAsTargetOption, imgSizeOption, radxaWosOption)
+        return new(loaderOption, vidOption, pidOption, memoryOption, logLevelOption, maxPayloadOption, slotOption, hostDevAsTargetOption, imgSizeOption, radxaWosOption, skipConfigureOption)
         {
             LoaderPath = bindingContext.ParseResult.GetValueForOption(loaderOption)?.FullName,
             Vid = bindingContext.ParseResult.GetValueForOption(vidOption),
@@ -56,7 +58,8 @@ internal sealed class GlobalOptionsBinder(
             Slot = bindingContext.ParseResult.GetValueForOption(slotOption),
             HostDevAsTarget = bindingContext.ParseResult.GetValueForOption(hostDevAsTargetOption),
             ImgSize = bindingContext.ParseResult.GetValueForOption(imgSizeOption),
-            RadxaWosPlatform = bindingContext.ParseResult.GetValueForOption(radxaWosOption)
+            RadxaWosPlatform = bindingContext.ParseResult.GetValueForOption(radxaWosOption),
+            SkipConfigure = bindingContext.ParseResult.GetValueForOption(skipConfigureOption)
         };
     }
 }
