@@ -732,6 +732,18 @@ internal sealed class EdlManager(GlobalOptionsBinder globalOptions) : IDisposabl
                 _transport?.Dispose();
                 _transport = OpenTransport();
                 _firehoseClient = new(_transport);
+
+                // We are attaching to a programmer that is ALREADY running - i.e. a separate
+                // invocation after an earlier 'upload-loader'. It has been emitting DEVPRG log
+                // XML ever since it started (on OPPO kaanapali that includes the VIP
+                // partition-info banner, tens of KB), and all of it is still sitting unread on
+                // the bulk IN endpoint. Until the host drains that backlog the device will not
+                // accept an OUT transfer, so every write fails at the LibUsb timeout floor
+                // (15s) while reads keep succeeding instantly. The Sahara branch below has
+                // always flushed for exactly this reason; this branch did not, which is why a
+                // fresh invocation against a live loader could not issue a single command.
+                DrainPendingDeviceOutput();
+
                 _firehoseConfigured = false;
                 CurrentMode = DeviceMode.Firehose;
                 break;
@@ -767,6 +779,31 @@ internal sealed class EdlManager(GlobalOptionsBinder globalOptions) : IDisposabl
             case DeviceMode.Error:
             default:
                 throw new TodoException($"Cannot proceed: Device mode is {mode} or could not be determined.");
+        }
+    }
+
+    /// <summary>
+    /// Reads and discards whatever the device still has queued on its IN endpoint, using a short
+    /// read timeout so a backlog of log-only output costs about a second rather than a full
+    /// transport timeout. Safe to call when nothing is pending.
+    /// </summary>
+    private void DrainPendingDeviceOutput()
+    {
+        if (_transport == null)
+        {
+            return;
+        }
+
+        var previousTimeout = _transport.TimeoutMilliseconds;
+        try
+        {
+            _transport.TimeoutMilliseconds = 1000;
+            Logging.Log("Draining pending device output before sending the first command...", LogLevel.Debug);
+            FlushForResponse();
+        }
+        finally
+        {
+            _transport.TimeoutMilliseconds = previousTimeout;
         }
     }
 
