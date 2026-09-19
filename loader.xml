@@ -2,7 +2,7 @@
 <sahara_config>
 <chipset>kaanapali</chipset>
 <images>
-<image image_id="13" file_name="loader.elf" image_path="/home/hurtcopain/Desktop/edl_loader/loader.elf" />
+<image image_id="13" file_name="prog_firehose_ddr.elf" image_path="/home/hurtcopain/Desktop/edl_loader/prog_firehose_ddr.elf" />
 <image image_id="21" file_name="xbl_sc.elf" image_path="/home/hurtcopain/Desktop/edl_loader/xbl_sc.elf" />
 <image image_id="36" file_name="multi_image_qti.mbn" image_path="/home/hurtcopain/Desktop/edl_loader/multi_image_qti.mbn" />
 <image image_id="37" file_name="multi_image.mbn" image_path="/home/hurtcopain/Desktop/edl_loader/multi_image.mbn" />
