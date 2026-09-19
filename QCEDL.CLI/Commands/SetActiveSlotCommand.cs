@@ -272,17 +272,21 @@ internal sealed class SetActiveSlotCommand
         var headerCrc = Crc32.Compute(buffer.AsSpan(hdr, (int)headerSize));
         BitConverter.GetBytes(headerCrc).CopyTo(buffer, hdr + 16);
 
-        lastTouchedSector = partArrayLba + (ulong)(((arrayBytes + sectorSize) - 1) / sectorSize) - 1;
+        lastTouchedSector = partArrayLba + (ulong)((arrayBytes + sectorSize - 1) / sectorSize) - 1;
         return changed;
     }
 
-    private static void SetActiveBit(byte[] buffer, int flagOffset, bool active) =>
+    private static void SetActiveBit(byte[] buffer, int flagOffset, bool active)
+    {
         buffer[flagOffset] = active
             ? (byte)(buffer[flagOffset] | GptSlotAttributes.SlotActiveBit)
             : (byte)(buffer[flagOffset] & ~GptSlotAttributes.SlotActiveBit);
+    }
 
-    private static bool HasGptSignature(byte[] buffer, int offset) =>
-        offset + 8 <= buffer.Length && BitConverter.ToUInt64(buffer, offset) == 0x5452415020494645UL;
+    private static bool HasGptSignature(byte[] buffer, int offset)
+    {
+        return offset + 8 <= buffer.Length && BitConverter.ToUInt64(buffer, offset) == 0x5452415020494645UL;
+    }
 
     private static bool IsEmptyGuid(byte[] buffer, int offset)
     {
