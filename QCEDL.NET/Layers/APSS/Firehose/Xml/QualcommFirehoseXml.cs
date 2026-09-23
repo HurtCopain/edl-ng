@@ -1,5 +1,6 @@
 ﻿using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 using QCEDL.NET.Logging;
@@ -271,6 +272,13 @@ public static class QualcommFirehoseXml
         // We need a more general way or ensure the input is clean. For now, let's assume 0x14 was the main one.
         cleanedXml = cleanedXml.Replace(((char)0x14).ToString(), " ");
 
+        // Some OPlus/Qualcomm SM8850 loader builds emit malformed XML where two
+        // attributes are not separated by whitespace, e.g.:
+        //   <response value="NAK" code="0x900000e"msg=" " />
+        // Strict XElement.Parse rejects this ("'msg' is an unexpected token").
+        // Insert a space between a closing attribute quote and an immediately
+        // following attribute name so the fragment parses.
+        cleanedXml = Regex.Replace(cleanedXml, "\"(?=[A-Za-z_][A-Za-z0-9_:.\\-]*=\")", "\" ");
 
         if (string.IsNullOrWhiteSpace(cleanedXml))
         {
