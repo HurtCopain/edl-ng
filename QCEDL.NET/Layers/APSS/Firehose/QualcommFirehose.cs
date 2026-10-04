@@ -179,4 +179,85 @@ public class QualcommFirehose(IQualcommTransport transport)
             throw;
         }
     }
+
+    /// <summary>
+    /// Sends an OEM-signed VIP digest table (the raw bytes of OPPO's DigestsToSign_*.bin.mbn) to the
+    /// running loader as a single Firehose payload and waits for the loader's XML ACK. On OPPO/OPlus
+    /// kaanapali (SM8850) the loader refuses every Firehose command with "VIP img authentication
+    /// failed" until this signed table has been accepted. The table is OEM-signed; this method only
+    /// transports it (it performs no signing or modification), mirroring fh_loader --signeddigests.
+    /// Returns true if the loader ACKed the table.
+    /// </summary>
+    public bool SendSignedDigestTable(byte[] signedDigestTable)
+    {
+        ArgumentNullException.ThrowIfNull(signedDigestTable);
+
+        LibraryLogger.Debug(
+            $"Sending VIP signed digest table ({signedDigestTable.Length} bytes) as a raw Firehose payload...");
+
+        // The loader will not service bulk-OUT until its pending IN (power-on / VIP banner) is
+        // drained first - the same reason Configure() drains before its first write.
+        DrainPendingData();
+
+        try
+        {
+            Transport.SendData(signedDigestTable);
+        }
+        catch (TimeoutException)
+        {
+            LibraryLogger.Warning("Signed digest table write timed out; draining pending log data and retrying once.");
+            DrainPendingData();
+            Transport.SendData(signedDigestTable);
+        }
+
+        var attempts = 0;
+        const int maxAttempts = 10;
+        while (attempts < maxAttempts)
+        {
+            attempts++;
+
+            Data[] datas;
+            try
+            {
+                datas = GetFirehoseResponseDataPayloads();
+            }
+            catch (TimeoutException)
+            {
+                LibraryLogger.Warning(
+                    $"Timeout waiting for signed digest table response (attempt {attempts}/{maxAttempts}).");
+                continue;
+            }
+            catch (BadMessageException)
+            {
+                continue;
+            }
+
+            foreach (var data in datas)
+            {
+                if (data.Log != null)
+                {
+                    LibraryLogger.Debug("DEVPRG LOG: " + data.Log.Value);
+                }
+                else if (data.Response != null)
+                {
+                    if (data.Response.Value == "ACK")
+                    {
+                        LibraryLogger.Debug("Signed digest table ACKed by the loader.");
+                        return true;
+                    }
+
+                    if (data.Response.Value == "NAK")
+                    {
+                        LibraryLogger.Error("Signed digest table NAKed by the loader.");
+                        return false;
+                    }
+
+                    LibraryLogger.Warning($"Unexpected response to signed digest table: {data.Response.Value}");
+                }
+            }
+        }
+
+        LibraryLogger.Error("No ACK/NAK received for the signed digest table after multiple attempts.");
+        return false;
+    }
 }

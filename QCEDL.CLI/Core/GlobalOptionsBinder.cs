@@ -21,7 +21,8 @@ internal sealed class GlobalOptionsBinder(
     Option<string?> hostDevAsTargetOption,
     Option<string?> imgSizeOption,
     Option<bool> radxaWosOption,
-    Option<bool> skipConfigureOption)
+    Option<bool> skipConfigureOption,
+    Option<FileInfo> signedDigestsOption)
     : BinderBase<GlobalOptionsBinder>
 {
     public string? LoaderPath { get; set; }
@@ -35,6 +36,7 @@ internal sealed class GlobalOptionsBinder(
     public string? ImgSize { get; set; }
     public bool RadxaWosPlatform { get; set; }
     public bool SkipConfigure { get; set; }
+    public string? SignedDigestsPath { get; set; }
 
     protected override GlobalOptionsBinder GetBoundValue(BindingContext bindingContext)
     {
@@ -47,7 +49,7 @@ internal sealed class GlobalOptionsBinder(
             Logging.Log(message, mappedCliLevel);
         };
 
-        return new(loaderOption, vidOption, pidOption, memoryOption, logLevelOption, maxPayloadOption, slotOption, hostDevAsTargetOption, imgSizeOption, radxaWosOption, skipConfigureOption)
+        return new(loaderOption, vidOption, pidOption, memoryOption, logLevelOption, maxPayloadOption, slotOption, hostDevAsTargetOption, imgSizeOption, radxaWosOption, skipConfigureOption, signedDigestsOption)
         {
             LoaderPath = bindingContext.ParseResult.GetValueForOption(loaderOption)?.FullName,
             Vid = bindingContext.ParseResult.GetValueForOption(vidOption),
@@ -59,7 +61,8 @@ internal sealed class GlobalOptionsBinder(
             HostDevAsTarget = bindingContext.ParseResult.GetValueForOption(hostDevAsTargetOption),
             ImgSize = bindingContext.ParseResult.GetValueForOption(imgSizeOption),
             RadxaWosPlatform = bindingContext.ParseResult.GetValueForOption(radxaWosOption),
-            SkipConfigure = bindingContext.ParseResult.GetValueForOption(skipConfigureOption)
+            SkipConfigure = bindingContext.ParseResult.GetValueForOption(skipConfigureOption),
+            SignedDigestsPath = bindingContext.ParseResult.GetValueForOption(signedDigestsOption)?.FullName
         };
     }
 }

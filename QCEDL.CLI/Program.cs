@@ -123,6 +123,32 @@ var skipConfigureOption = new Option<bool>(
                  "loaders, which self-configure during Sahara startup and reject a host <configure> with " +
                  "'Mode= Invalid value' / 'DebugValue= Invalid value'. Equivalent to fh_loader --skip_configure.");
 
+var signedDigestsOption = new Option<FileInfo>(
+    aliases: ["--signeddigests", "--digests"],
+    description: "Path to an OEM-signed VIP digest table (OPPO DigestsToSign_*.bin.mbn). When set it is sent " +
+                 "to the loader after Sahara/skip-configure and before any <program> (and by the 'vip-send' " +
+                 "command). Equivalent to fh_loader --signeddigests.",
+    parseArgument: result =>
+    {
+        if (result.Tokens.Count == 0)
+        {
+            result.ErrorMessage = "Missing value for --signeddigests.";
+            return null!;
+        }
+
+        var path = PathHelper.ExpandTilde(result.Tokens[0].Value);
+        if (!File.Exists(path))
+        {
+            result.ErrorMessage = $"File does not exist: '{result.Tokens[0].Value}'.";
+            return null!;
+        }
+
+        return new FileInfo(path);
+    })
+{
+    IsRequired = false
+};
+
 // --- Create Global Options Binder ---
 var globalOptionsBinder = new GlobalOptionsBinder(
     loaderOption,
@@ -135,7 +161,8 @@ var globalOptionsBinder = new GlobalOptionsBinder(
     hostDevAsTargetOption,
     imgSizeOption,
     radxaWosOption,
-    skipConfigureOption
+    skipConfigureOption,
+    signedDigestsOption
 );
 
 // --- Define Root Command ---
@@ -152,6 +179,7 @@ rootCommand.AddGlobalOption(hostDevAsTargetOption);
 rootCommand.AddGlobalOption(imgSizeOption);
 rootCommand.AddGlobalOption(radxaWosOption);
 rootCommand.AddGlobalOption(skipConfigureOption);
+rootCommand.AddGlobalOption(signedDigestsOption);
 
 // --- Define Commands (Add more commands here later) ---
 rootCommand.AddCommand(UploadLoaderCommand.Create(globalOptionsBinder));
@@ -171,6 +199,7 @@ rootCommand.AddCommand(EraseAllCommand.Create(globalOptionsBinder));
 rootCommand.AddCommand(ProvisionCommand.Create(globalOptionsBinder));
 rootCommand.AddCommand(RawProgramCommand.Create(globalOptionsBinder));
 rootCommand.AddCommand(SendXmlCommand.Create(globalOptionsBinder));
+rootCommand.AddCommand(VipSendCommand.Create(globalOptionsBinder));
 // ... etc ...
 
 // --- Default Handler (Show Help if no command given) ---

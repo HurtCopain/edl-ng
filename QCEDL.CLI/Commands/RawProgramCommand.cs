@@ -167,6 +167,51 @@ internal sealed class RawProgramCommand
                 await manager.ConfigureFirehoseAsync();
             }
 
+            if (!manager.IsDirectMode && !string.IsNullOrEmpty(globalOptions.SignedDigestsPath))
+            {
+                Logging.Log($"Sending OEM-signed VIP digest table '{globalOptions.SignedDigestsPath}' before programming...");
+
+                byte[] signedTable;
+                try
+                {
+                    signedTable = await File.ReadAllBytesAsync(globalOptions.SignedDigestsPath);
+                }
+                catch (Exception ex)
+                {
+                    Logging.Log($"Error reading signed digest table '{globalOptions.SignedDigestsPath}': {ex.Message}", LogLevel.Error);
+                    return 1;
+                }
+
+                var tableAcked = await Task.Run(() => manager.Firehose.SendSignedDigestTable(signedTable));
+                if (!tableAcked)
+                {
+                    Logging.Log("VIP signed digest table was not ACKed; aborting before any write.", LogLevel.Error);
+                    return 1;
+                }
+
+                Logging.Log("VIP signed digest table ACKed; proceeding to program.");
+            }
+
+            if (!manager.IsDirectMode && globalOptions.SkipConfigure)
+            {
+                // OPPO/OPlus kaanapali opens the validated-download context with
+                // <sha256init> instead of <configure>. Without it the loader refuses every
+                // <program>/<read> with "download is not allowed" even after the signed VIP
+                // table has been accepted (metadata commands still work). Mirror fh_loader.
+                Logging.Log("Opening VIP validated-download with <sha256init Verbose=\"1\"/> (OPPO skip-configure sequence)...");
+                var sha256InitOk = await Task.Run(() =>
+                    manager.Firehose.SendRawXmlAndGetResponse("<?xml version=\"1.0\" ?><data><sha256init Verbose=\"1\" /></data>"));
+                if (sha256InitOk)
+                {
+                    Logging.Log("sha256init ACKed; validated download is open.");
+                }
+                else
+                {
+                    Logging.Log("sha256init did not return a clean ACK (the loader's verbose log burst can mask it); " +
+                                "proceeding, since the program ACK/NAK is authoritative.", LogLevel.Warning);
+                }
+            }
+
             foreach (var lunKey in sortedLunsToProcess)
             {
                 var rawFile = rawProgramFilesMap[lunKey];
