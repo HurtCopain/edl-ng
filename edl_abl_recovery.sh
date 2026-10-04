@@ -147,7 +147,7 @@ hr "PHASE 2  --  UPLOAD FIREHOSE LOADER (multi-image Sahara)"
 # line without the transfer having actually completed; the error-pattern
 # scan below is what catches that case.
 
-sudo "$BIN" --loader "$LOADER" --loglevel Debug upload-loader 2>&1 | tee phase2_upload.log
+sudo "$BIN" --skip-configure --loader "$LOADER" --loglevel Debug upload-loader 2>&1 | tee phase2_upload.log
 
 SAHARA_ERROR_PATTERN='ErrorHashTableAuthFailure|Status Error|Handshake failed|RESET_STATE_MACHINE'
 if grep -qE "$SAHARA_ERROR_PATTERN" phase2_upload.log; then
@@ -169,7 +169,7 @@ hr "PHASE 3  --  READ GPT (first real test of the read path)"
 # This is the gate. If configure NAKs here, reads are blocked and no
 # amount of retrying will help without addressing the NAK.
 
-sudo "$BIN" --loader "$LOADER" --memory UFS --loglevel Debug \
+sudo "$BIN" --skip-configure --loader "$LOADER" --memory UFS --loglevel Debug \
      printgpt --lun "$LUN" 2>&1 | tee phase3_gpt.log
 
 if grep -qE "$SAHARA_ERROR_PATTERN" phase3_gpt.log; then
@@ -221,14 +221,14 @@ hr "PHASE 4  --  BACKUP THE ABL PARTITION(S) (read-only, no risk)"
 
 if [ -n "$ABL_REFERENCE" ]; then
     echo "[*] Dumping $ABL_REFERENCE (assumed untouched reference slot)..."
-    sudo "$BIN" --loader "$LOADER" --memory UFS \
+    sudo "$BIN" --skip-configure --loader "$LOADER" --memory UFS \
          read-part "$ABL_REFERENCE" abl_reference_stock.bin --lun "$LUN" 2>&1 | tee phase4_read_reference.log
     [ -f abl_reference_stock.bin ] || die "$ABL_REFERENCE dump did not produce a file"
 fi
 
 echo
 echo "[*] Dumping $ABL_TARGET (the target/damaged slot, for the record)..."
-sudo "$BIN" --loader "$LOADER" --memory UFS \
+sudo "$BIN" --skip-configure --loader "$LOADER" --memory UFS \
      read-part "$ABL_TARGET" abl_target_current.bin --lun "$LUN" 2>&1 | tee phase4_read_target.log
 
 echo
