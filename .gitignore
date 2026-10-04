@@ -484,6 +484,24 @@ $RECYCLE.BIN/
 *.swp
 
 # Nix build artifacts
+
+DigestsToSign_nv00111000.bin.mbn
+abl.elf
+fh_loader.exe
+lpmake.exe
+lsusb.exe
+multi_image.mbn
+multi_image_qti.mbn
+port_trace.txt
+prog_firehose_ddr.elf
+rawprogram_abl.xml
+sequencer_ram.elf
+signed_firmware_soc_view.elf
+tme_config.elf
+xbl_config_devprg.elf
+xbl_sc.elf
+zeros_5sectors.bin
+	
 /*-source
 /outputs
 /result
